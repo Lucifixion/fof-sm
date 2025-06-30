@@ -94,6 +94,7 @@ public void HookClient(int client)
 {
 	SDKHook(client, SDKHook_WeaponEquip, Hook_OnPlayerWeaponEquip);
 	SDKHook(client, SDKHook_OnTakeDamage, Hook_OnPlayerTakeDamage);
+	SDKHook(client, SDKHook_SetTransmit, Hook_OnPlayerSetTransmit);
 }
 
 public void OnConfigsExecuted()
@@ -424,6 +425,14 @@ public Action Hook_OnPlayerTakeDamage(int client, int &attacker, int &inflictor,
 		damage = 1000.0;
 		return Plugin_Changed;
 	} 
+
+	return Plugin_Continue;
+}
+
+public Action Hook_OnPlayerSetTransmit(int entity, int client)
+{
+	if( iWinningPlayer == entity && iWinningPlayer != -1 && IsClientValid(iWinningPlayer) )
+		SetEdictFlags(entity, ( GetEdictFlags(entity) | FL_EDICT_ALWAYS ) );
 
 	return Plugin_Continue;
 }
