@@ -8,11 +8,13 @@
 			{
 				"library"			"server"
 				"windows"			"\x56\x57\x8B\xF1\xE8\x2A\x2A\x2A\x2A\x8B\x0D\x2A\x2A\x2A\x2A\x8B\xF8\x8B\x11\x8B\x92\x2A\x2A\x2A\x2A\xFF\xD2\x84\xC0\x75\x2A\x8B\xBE\x2A\x2A\x2A\x2A\x83\xC7\x02\x83\xC7\xFE"
+				"linux"				"@_ZN11CFoF_Player14SetPlayerModelEv" // im not fixing these
 			}
 			"CFOFGamerules::EndMultiplayerGame" // also not a function name (fof doesnt have its own gamerules class), look for "game_end"
 			{
 				"library"			"server"
 				"windows"			"\x55\x8B\xEC\x83\xEC\x0C\x80\x3D\x2A\x2A\x2A\x2A\x00\x53"
+				"linux"				"@_ZN11CHL2MPRules16GoToIntermissionEv" // im not fixing these
 			}
 		}
 	}
