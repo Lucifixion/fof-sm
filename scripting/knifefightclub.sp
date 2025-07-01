@@ -163,7 +163,7 @@ public void OnGameFrame()
 		ClearIndicators();
 	}
 	
-	UpdateEquipMenu();
+	//UpdateEquipMenu();
 	UpdateWinningPlayer();
 }
 
@@ -173,7 +173,7 @@ public void UpdateKnifeIndicator()
 
 	for (int i = 1; i <= MaxClients;i++) 
 	{
-		if (!IsClientInGame(i) || IsFakeClient(i)) continue;
+		if (!IsClientInGame(i)) continue;
 
 		UpdateKnifeTextParameters( iWinningPlayer != -1 && iWinningPlayer == i );
 		int iKnifeCount = GetKnifeCount(i);
@@ -181,7 +181,7 @@ public void UpdateKnifeIndicator()
 		char buffer[128];
 		Format(buffer, sizeof(buffer), "%d/%d KNIVES", iKnifeCount, iMaxPoints);
 
-		ShowSyncHudText(i, hKnifeIndicator, buffer);
+		if(!IsFakeClient(i)) ShowSyncHudText(i, hKnifeIndicator, buffer);
 		iPlayerKnifeCount[i] = iKnifeCount;
 	}
 }
@@ -408,6 +408,9 @@ public void Frame_OnPlayerSpawn(int client)
 // dipshit check for equip menu bugs
 public Action Timer_KnifeCheck(Handle timer, int client)
 {
+	if(!IsClientValid(client))
+		return Plugin_Continue;
+
 	if((EntRefToEntIndex(iPlayerKnife[client]) == INVALID_ENT_REFERENCE)) {
 		GivePlayerItem( client, "weapon_knife" );
 		SetEntProp(client, Prop_Data, "m_iAmmo", fof_sv_kfc_spawnknifes.IntValue - 1, _, 6);
