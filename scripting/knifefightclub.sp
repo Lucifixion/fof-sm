@@ -22,6 +22,8 @@ int iPlayerScoreOffset = -1;
 int iPlayerKnife[MAXPLAYERS+1] = {-1, ...};
 int iPlayerKnifeCount[MAXPLAYERS+1] = {0, ...};
 
+bool bPlayerSpawned[MAXPLAYERS+1] = {false, ...};
+
 ConVar fof_sv_kfc_spawnknifes;
 
 ConVar fof_sv_kfc_pointlimit;
@@ -29,8 +31,11 @@ ConVar fof_sv_kfc_wintime;
 
 ConVar fof_sv_kfc_knifedecay_time;
 
-Handle hKnifeIndicator = INVALID_HANDLE;
+Handle hObjectiveIndicator = INVALID_HANDLE;
+Handle hFlavorIndicator = INVALID_HANDLE;
+
 Handle hWinIndicator = INVALID_HANDLE;
+Handle hKnifeIndicator = INVALID_HANDLE;
 
 int iWinningPlayer = -1;
 float flWinTime = 0.0;
@@ -46,8 +51,11 @@ public void OnPluginStart()
 	
 	fof_sv_kfc_knifedecay_time = CreateConVar("fof_sv_kfc_knifedecay_time", "12");
 
-	hKnifeIndicator = CreateHudSynchronizer();
+	hObjectiveIndicator = CreateHudSynchronizer();
+	hFlavorIndicator = CreateHudSynchronizer();
+	
 	hWinIndicator = CreateHudSynchronizer();
+	hKnifeIndicator = CreateHudSynchronizer();
 
 	iWinningPlayer = -1;
 	flWinTime = 0.0;
@@ -95,23 +103,51 @@ public void HookClient(int client)
 	SDKHook(client, SDKHook_WeaponEquip, Hook_OnPlayerWeaponEquip);
 	SDKHook(client, SDKHook_OnTakeDamage, Hook_OnPlayerTakeDamage);
 	SDKHook(client, SDKHook_SetTransmit, Hook_OnPlayerSetTransmit);
+	SDKHook(client, SDKHook_SpawnPost, Hook_OnPlayerSpawnPost);
+	
+	bPlayerSpawned[client] = false;
 }
 
 public void OnConfigsExecuted()
 {
 	Steam_SetGameDescription("Knife Fight Club"); 
+
+	RequestFrame(Frame_UpdateConVars);
 }
 
-public void UpdateKnifeTextParameters(bool fade)
+public void Frame_UpdateConVars()
 {
-	int rgb = fade ? 103 : 206;
+	FindConVar("fof_sv_dm_comp").SetInt(0);
+	FindConVar("fof_sv_dm_comp_points").SetInt(0);
+	
+	FindConVar("fof_sv_currentmode").SetInt(1);
+	FindConVar("fof_sv_shootout_custom").SetInt(1);
+	
+	FindConVar("fof_sv_weaponmenu").SetBool(false);
+}
 
-	SetHudTextParams(-1.0, 0.75, 1.0, rgb, rgb, rgb, 255, 2, 0.0, 0.0, 0.0);
+public void UpdateObjectiveTextParameters()
+{
+	SetHudTextParams(-1.0, 0.025, 1.0, 206, 206, 206, 255, 2, 0.0, 0.0, 0.0);
+}
+
+public void UpdateFlavorTextParameters()
+{
+	SetHudTextParams(-1.0, 0.075, 7.5, 206, 172, 0, 255, 0, 0.0, 0.0, 1.0);
 }
 
 public void UpdateWinTextParameters()
 {
 	SetHudTextParams(-1.0, 0.70, 1.0, 206, 206, 206, 255, 2, 0.0, 0.0, 0.0);
+}
+
+public void UpdateKnifeTextParameters(bool fade)
+{
+	int r = fade ? 206 : 206;
+	int g = fade ? 172 : 206;
+	int b = fade ? 0   : 206;
+
+	SetHudTextParams(-1.0, 0.75, 1.0, r, g, b, 255, 2, 0.0, 0.0, 0.0);
 }
 
 public Action Event_PlayerDeath( Handle hEvent, char[] szEventName, bool bDontBroadcast ) {
@@ -155,6 +191,8 @@ public void OnGameFrame()
 {
 	if(!bGameOver)
 	{
+		UpdateObjectiveIndicator();
+		
 		UpdateKnifeIndicator();
 		UpdateWinIndicator();
 	}
@@ -167,22 +205,19 @@ public void OnGameFrame()
 	UpdateWinningPlayer();
 }
 
-public void UpdateKnifeIndicator()
+public void UpdateObjectiveIndicator()
 {
-	int iMaxPoints = fof_sv_kfc_pointlimit.IntValue;
-
 	for (int i = 1; i <= MaxClients;i++) 
 	{
 		if (!IsClientInGame(i)) continue;
 
-		UpdateKnifeTextParameters( iWinningPlayer != -1 && iWinningPlayer == i );
-		int iKnifeCount = GetKnifeCount(i);
+		UpdateObjectiveTextParameters();
+		int iKnifeCount = fof_sv_kfc_pointlimit.IntValue;
 
 		char buffer[128];
-		Format(buffer, sizeof(buffer), "%d/%d KNIVES", iKnifeCount, iMaxPoints);
+		Format(buffer, sizeof(buffer), "GET %d KNIVES TO WIN", iKnifeCount);
 
-		if(!IsFakeClient(i)) ShowSyncHudText(i, hKnifeIndicator, buffer);
-		iPlayerKnifeCount[i] = iKnifeCount;
+		if(!IsFakeClient(i)) ShowSyncHudText(i, hObjectiveIndicator, buffer);
 	}
 }
 
@@ -223,14 +258,33 @@ public void UpdateWinIndicator()
 	}
 }
 
+public void UpdateKnifeIndicator()
+{
+	for (int i = 1; i <= MaxClients;i++) 
+	{
+		if (!IsClientInGame(i)) continue;
+
+		UpdateKnifeTextParameters( iWinningPlayer != -1 && iWinningPlayer == i );
+		int iKnifeCount = GetKnifeCount(i);
+
+		char buffer[128];
+		Format(buffer, sizeof(buffer), "%d KNIVES", iKnifeCount);
+
+		if(!IsFakeClient(i)) ShowSyncHudText(i, hKnifeIndicator, buffer);
+		iPlayerKnifeCount[i] = iKnifeCount;
+	}
+}
+
 public void ClearIndicators()
 {
 	for (int i = 1; i <= MaxClients;i++)
 	{
 		if (!IsClientInGame(i) || IsFakeClient(i)) continue;
 		
-		ShowSyncHudText(i, hKnifeIndicator, " ");
+		ShowSyncHudText(i, hObjectiveIndicator, " ");
+		
 		ShowSyncHudText(i, hWinIndicator, " ");
+		ShowSyncHudText(i, hKnifeIndicator, " ");
 	}
 }
 
@@ -436,6 +490,18 @@ public Action Hook_OnPlayerSetTransmit(int entity, int client)
 {
 	if( iWinningPlayer == entity && iWinningPlayer != -1 && IsClientValid(iWinningPlayer) )
 		SetEdictFlags(entity, ( GetEdictFlags(entity) | FL_EDICT_ALWAYS ) );
+
+	return Plugin_Continue;
+}
+
+public Action Hook_OnPlayerSpawnPost(int client)
+{
+	if(!bPlayerSpawned[client]) {
+		UpdateFlavorTextParameters();
+	
+		if(!IsFakeClient(client)) ShowSyncHudText(client, hFlavorIndicator, "THROW KNIVES FOR AN INSTANT KILL");
+		bPlayerSpawned[client] = true;
+	}
 
 	return Plugin_Continue;
 }
