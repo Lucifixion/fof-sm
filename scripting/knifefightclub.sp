@@ -1,7 +1,6 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <sdktools>
-#include <dhooks>
 #include <steamtools>
 
 #pragma newdecls required
@@ -22,12 +21,14 @@ int iPlayerScoreOffset = -1;
 int iPlayerKnife[MAXPLAYERS+1] = {-1, ...};
 int iPlayerKnifeCount[MAXPLAYERS+1] = {0, ...};
 
-bool bPlayerSpawned[MAXPLAYERS+1] = {false, ...};
+int iPlayerSpawned[MAXPLAYERS+1] = {0, ...};
 
 ConVar fof_sv_kfc_spawnknifes;
 
 ConVar fof_sv_kfc_pointlimit;
 ConVar fof_sv_kfc_wintime;
+
+ConVar fof_sv_kfc_backstab;
 
 ConVar fof_sv_kfc_knifedecay_time;
 
@@ -48,6 +49,8 @@ public void OnPluginStart()
 	
 	fof_sv_kfc_pointlimit = CreateConVar("fof_sv_kfc_pointlimit", "16");
 	fof_sv_kfc_wintime = CreateConVar("fof_sv_kfc_wintime", "15");
+
+	fof_sv_kfc_backstab = CreateConVar("fof_sv_kfc_backstab", "1");
 	
 	fof_sv_kfc_knifedecay_time = CreateConVar("fof_sv_kfc_knifedecay_time", "12");
 
@@ -105,7 +108,7 @@ public void HookClient(int client)
 	SDKHook(client, SDKHook_SetTransmit, Hook_OnPlayerSetTransmit);
 	SDKHook(client, SDKHook_SpawnPost, Hook_OnPlayerSpawnPost);
 	
-	bPlayerSpawned[client] = false;
+	iPlayerSpawned[client] = 0;
 }
 
 public void OnConfigsExecuted()
@@ -191,6 +194,7 @@ public void OnGameFrame()
 {
 	if(!bGameOver)
 	{
+		UpdateWinningPlayer();
 		UpdateObjectiveIndicator();
 		
 		UpdateKnifeIndicator();
@@ -202,7 +206,6 @@ public void OnGameFrame()
 	}
 	
 	//UpdateEquipMenu();
-	UpdateWinningPlayer();
 }
 
 public void UpdateObjectiveIndicator()
@@ -282,6 +285,7 @@ public void ClearIndicators()
 		if (!IsClientInGame(i) || IsFakeClient(i)) continue;
 		
 		ShowSyncHudText(i, hObjectiveIndicator, " ");
+		ShowSyncHudText(i, hFlavorIndicator, " ");
 		
 		ShowSyncHudText(i, hWinIndicator, " ");
 		ShowSyncHudText(i, hKnifeIndicator, " ");
@@ -367,7 +371,7 @@ public int GetKnifeCount(int client)
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (StrEqual(classname, "fof_crate_low") || StrEqual(classname, "fof_crate_med") || StrEqual(classname, "fof_crate"))
+	if (StrEqual(classname, "fof_crate_low") || StrEqual(classname, "fof_crate_med") || StrEqual(classname, "fof_crate") || StrEqual(classname, "fof_crate_special"))
 	{
 		SDKHook(entity, SDKHook_Spawn, Hook_OnCrateSpawn);
 		return;
@@ -439,7 +443,7 @@ public Action Hook_OnPlayerWeaponEquip(int client, int weapon)
 			if((EntRefToEntIndex(iPlayerKnife[client]) == INVALID_ENT_REFERENCE))
 				GivePlayerItem( client, "weapon_knife" );
 			RequestFrame(Frame_OnPlayerSpawn, client);
-			CreateTimer(0.5, Timer_KnifeCheck, client);
+			// CreateTimer(0.5, Timer_KnifeCheck, client);
 		}
 	}
 	else if ( !(StrEqual(buffer, "weapon_knife")) )
@@ -474,10 +478,18 @@ public Action Timer_KnifeCheck(Handle timer, int client)
 
 public Action Hook_OnPlayerTakeDamage(int client, int &attacker, int &inflictor, float &damage, int &damagetype) 
 {
+	if(attacker == 0)
+		return Plugin_Continue;
+
 	char buffer[128];
-	GetEntityClassname(inflictor, buffer, sizeof(buffer));
+	GetEntityClassname(inflictor == attacker ? GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon") : inflictor, buffer, sizeof(buffer));
 
 	if ( StrEqual(buffer, "thrown_knife") )
+	{
+		damage = 1000.0;
+		return Plugin_Changed;
+	} 
+	else if ( fof_sv_kfc_backstab.BoolValue && StrEqual(buffer, "weapon_knife") && IsBehindAndFacingTarget( attacker, client ) )
 	{
 		damage = 1000.0;
 		return Plugin_Changed;
@@ -488,6 +500,8 @@ public Action Hook_OnPlayerTakeDamage(int client, int &attacker, int &inflictor,
 
 public Action Hook_OnPlayerSetTransmit(int entity, int client)
 {
+	SetEntPropFloat(client, Prop_Send, "m_flFoFCash", 0.0);
+
 	if( iWinningPlayer == entity && iWinningPlayer != -1 && IsClientValid(iWinningPlayer) )
 		SetEdictFlags(entity, ( GetEdictFlags(entity) | FL_EDICT_ALWAYS ) );
 
@@ -496,23 +510,52 @@ public Action Hook_OnPlayerSetTransmit(int entity, int client)
 
 public Action Hook_OnPlayerSpawnPost(int client)
 {
-	if(!bPlayerSpawned[client]) {
+	if(iPlayerSpawned[client] < 2) {
 		UpdateFlavorTextParameters();
 	
 		if(!IsFakeClient(client)) ShowSyncHudText(client, hFlavorIndicator, "THROW KNIVES FOR AN INSTANT KILL");
-		bPlayerSpawned[client] = true;
+		iPlayerSpawned[client]++;
 	}
 
 	return Plugin_Continue;
 }
 
-stock Handle DHookCreateDetourEx(GameData conf, const char[] name, CallingConvention callConv, ReturnType returntype, ThisPointerType thisType)
+public bool IsBehindAndFacingTarget( int client, int target )
 {
-	Handle h = DHookCreateDetour(Address_Null, callConv, returntype, thisType);
-	if (h)
-		if (!DHookSetFromConf(h, conf, SDKConf_Signature, name))
-			SetFailState("Could not set %s from config!", name);
-	return h;
+	float clientOrigin[3];
+	float targetOrigin[3];
+
+	GetClientAbsOrigin( client, clientOrigin );
+	GetClientAbsOrigin( target, targetOrigin );
+
+	// Get a vector from owner origin to target origin
+	float vecToTarget[3];
+	SubtractVectors( targetOrigin, clientOrigin, vecToTarget );
+	vecToTarget[0] = 0.0;
+	NormalizeVector( vecToTarget, vecToTarget );
+
+	// Get owner forward view vector
+	float vecOwnerForward[3];
+	float angOwnerForward[3];
+	GetClientEyeAngles( client, angOwnerForward );
+	GetAngleVectors( angOwnerForward, vecOwnerForward, NULL_VECTOR, NULL_VECTOR );
+	vecOwnerForward[2] = 0.0;
+	NormalizeVector( vecOwnerForward, vecOwnerForward );
+
+	// Get target forward view vector
+	float vecTargetForward[3];
+	float angTargetForward[3];
+	GetClientEyeAngles( target, angTargetForward );
+	GetAngleVectors( angTargetForward, vecTargetForward, NULL_VECTOR, NULL_VECTOR );
+	vecTargetForward[2] = 0.0;
+	NormalizeVector( vecTargetForward, vecTargetForward );
+
+	// Make sure owner is behind, facing and aiming at target's back
+	float flPosVsTargetViewDot = GetVectorDotProduct( vecToTarget, vecTargetForward );	// Behind?
+	float flPosVsOwnerViewDot = GetVectorDotProduct( vecToTarget, vecOwnerForward );		// Facing?
+	float flViewAnglesDot = GetVectorDotProduct( vecTargetForward, vecOwnerForward );	// Facestab?
+
+	return ( flPosVsTargetViewDot > 0.0 && flPosVsOwnerViewDot > 0.5 && flViewAnglesDot > -0.3 );
 }
 
 stock bool IsClientValid(int client)
